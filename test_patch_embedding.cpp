@@ -9,6 +9,7 @@
 #include "position_embedding.h"
 #include "layer_norm.h"
 #include "multi_head_attention.h"
+#include "mlp.h"
 
 using namespace std;
 
@@ -139,6 +140,8 @@ int main(int argc, char **argv)
     Tensor *positioned_tokens = nullptr;
     Tensor *normalized_tokens = nullptr;
     Tensor *attention_output = nullptr;
+    MlpBlock *mlp_layer = nullptr;
+    Tensor *mlp_output = nullptr;
 
     if (image_tensor != nullptr && layer != nullptr) {
         embeddings = patch_embedding_forward(layer, image_tensor);
@@ -159,19 +162,23 @@ int main(int argc, char **argv)
     normalized_tokens = layer_norm_forward(norm_layer, positioned_tokens);
     attention_layer = multi_head_attention_create(64, 4);
     attention_output = multi_head_attention_forward(attention_layer, normalized_tokens);
+    mlp_layer = mlp_create(64, 256);
+    mlp_output = mlp_forward(mlp_layer, attention_output);
 
     if (tokens == nullptr || positioned_tokens == nullptr || normalized_tokens == nullptr
-        || attention_output == nullptr) {
+        || attention_output == nullptr || mlp_output == nullptr) {
         cerr << "Transformer input pipeline failed\n";
         tensor_free(embeddings);
         tensor_free(tokens);
         tensor_free(positioned_tokens);
         tensor_free(normalized_tokens);
         tensor_free(attention_output);
+        tensor_free(mlp_output);
         cls_token_free(cls_layer);
         position_embedding_free(position_layer);
         layer_norm_free(norm_layer);
         multi_head_attention_free(attention_layer);
+        mlp_free(mlp_layer);
         tensor_free(image_tensor);
         patch_embedding_free(layer);
         return EXIT_FAILURE;
@@ -184,6 +191,8 @@ int main(int argc, char **argv)
          << tensor_shape(embeddings)[1] << "]\n";
     cout << "Attention output shape: [" << tensor_shape(attention_output)[0] << ", "
          << tensor_shape(attention_output)[1] << "]\n";
+    cout << "MLP output shape: [" << tensor_shape(mlp_output)[0] << ", "
+         << tensor_shape(mlp_output)[1] << "]\n";
     cout << "Saved: " << grid_path << '\n';
     cout << "Saved: " << montage_path << '\n';
 
@@ -192,10 +201,12 @@ int main(int argc, char **argv)
     tensor_free(positioned_tokens);
     tensor_free(normalized_tokens);
     tensor_free(attention_output);
+    tensor_free(mlp_output);
     cls_token_free(cls_layer);
     position_embedding_free(position_layer);
     layer_norm_free(norm_layer);
     multi_head_attention_free(attention_layer);
+    mlp_free(mlp_layer);
     tensor_free(image_tensor);
     patch_embedding_free(layer);
     return EXIT_SUCCESS;
