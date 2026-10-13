@@ -72,6 +72,18 @@ PatchEmbedding *patch_embedding_create(
         return NULL;
     }
 
+    /* Identity-like initialization for a useful forward-pass baseline. */
+    {
+        float *weights = tensor_data_mut(layer->weights);
+        size_t diagonal = layer->patch_dimension < embedding_dim
+            ? layer->patch_dimension : embedding_dim;
+        size_t i;
+
+        for (i = 0; i < diagonal; ++i) {
+            weights[i * embedding_dim + i] = 1.0f;
+        }
+    }
+
     return layer;
 }
 

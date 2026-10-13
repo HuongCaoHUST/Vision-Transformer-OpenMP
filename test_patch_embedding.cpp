@@ -11,6 +11,7 @@
 #include "multi_head_attention.h"
 #include "mlp.h"
 #include "transformer_encoder.h"
+#include "vision_transformer.h"
 
 using namespace std;
 
@@ -145,6 +146,8 @@ int main(int argc, char **argv)
     Tensor *mlp_output = nullptr;
     TransformerEncoder *encoder = nullptr;
     Tensor *encoder_output = nullptr;
+    VisionTransformer *vit = nullptr;
+    Tensor *logits = nullptr;
 
     if (image_tensor != nullptr && layer != nullptr) {
         embeddings = patch_embedding_forward(layer, image_tensor);
@@ -169,9 +172,12 @@ int main(int argc, char **argv)
     mlp_output = mlp_forward(mlp_layer, attention_output);
     encoder = transformer_encoder_create(64, 4, 256);
     encoder_output = transformer_encoder_forward(encoder, positioned_tokens);
+    vit = vision_transformer_create(32, 32, 8, 3, 64, 4, 256, 2, 10);
+    logits = vision_transformer_forward(vit, image_tensor);
 
     if (tokens == nullptr || positioned_tokens == nullptr || normalized_tokens == nullptr
-        || attention_output == nullptr || mlp_output == nullptr || encoder_output == nullptr) {
+        || attention_output == nullptr || mlp_output == nullptr || encoder_output == nullptr
+        || logits == nullptr) {
         cerr << "Transformer input pipeline failed\n";
         tensor_free(embeddings);
         tensor_free(tokens);
@@ -180,12 +186,14 @@ int main(int argc, char **argv)
         tensor_free(attention_output);
         tensor_free(mlp_output);
         tensor_free(encoder_output);
+        tensor_free(logits);
         cls_token_free(cls_layer);
         position_embedding_free(position_layer);
         layer_norm_free(norm_layer);
         multi_head_attention_free(attention_layer);
         mlp_free(mlp_layer);
         transformer_encoder_free(encoder);
+        vision_transformer_free(vit);
         tensor_free(image_tensor);
         patch_embedding_free(layer);
         return EXIT_FAILURE;
@@ -202,6 +210,8 @@ int main(int argc, char **argv)
          << tensor_shape(mlp_output)[1] << "]\n";
     cout << "Encoder output shape: [" << tensor_shape(encoder_output)[0] << ", "
          << tensor_shape(encoder_output)[1] << "]\n";
+    cout << "ViT logits shape: [" << tensor_shape(logits)[0] << ", "
+         << tensor_shape(logits)[1] << "]\n";
     cout << "Saved: " << grid_path << '\n';
     cout << "Saved: " << montage_path << '\n';
 
@@ -212,12 +222,14 @@ int main(int argc, char **argv)
     tensor_free(attention_output);
     tensor_free(mlp_output);
     tensor_free(encoder_output);
+    tensor_free(logits);
     cls_token_free(cls_layer);
     position_embedding_free(position_layer);
     layer_norm_free(norm_layer);
     multi_head_attention_free(attention_layer);
     mlp_free(mlp_layer);
     transformer_encoder_free(encoder);
+    vision_transformer_free(vit);
     tensor_free(image_tensor);
     patch_embedding_free(layer);
     return EXIT_SUCCESS;
