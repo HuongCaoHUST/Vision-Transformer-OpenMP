@@ -3,7 +3,7 @@ PKG_CONFIG ?= pkg-config
 
 TARGET    := build/vision_transformer
 SOURCES   := test.cpp
-TENSOR_OBJECTS := build/tensor.o build/patch_embedding.o build/cls_token.o build/position_embedding.o build/layer_norm.o build/softmax.o build/multi_head_attention.o build/mlp.o build/transformer_encoder.o build/vision_transformer.o
+TENSOR_OBJECTS := build/tensor.o build/initializer.o build/patch_embedding.o build/cls_token.o build/position_embedding.o build/layer_norm.o build/softmax.o build/multi_head_attention.o build/mlp.o build/transformer_encoder.o build/vision_transformer.o build/cross_entropy.o
 PATCH_TEST := build/test_patch_embedding
 
 CPPFLAGS  += $(shell $(PKG_CONFIG) --cflags opencv4 2>/dev/null)
@@ -22,6 +22,14 @@ run: $(TARGET)
 	./$(TARGET)
 
 build/tensor.o: src/tensor.c include/tensor.h
+	@mkdir -p $(dir $@)
+	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
+
+build/initializer.o: src/initializer.c include/initializer.h include/tensor.h
+	@mkdir -p $(dir $@)
+	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
+
+build/cross_entropy.o: src/cross_entropy.c include/cross_entropy.h include/tensor.h
 	@mkdir -p $(dir $@)
 	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
 

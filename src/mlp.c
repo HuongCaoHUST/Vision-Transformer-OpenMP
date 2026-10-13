@@ -3,6 +3,8 @@
 #include <math.h>
 #include <stdlib.h>
 
+#include "initializer.h"
+
 struct MlpBlock {
     size_t input_dimension;
     size_t hidden_dimension;
@@ -12,23 +14,19 @@ struct MlpBlock {
     Tensor *output_bias;
 };
 
-static Tensor *create_weight(size_t input_dimension, size_t output_dimension)
+static Tensor *create_weight(
+    size_t input_dimension,
+    size_t output_dimension,
+    uint32_t seed)
 {
     size_t shape[2] = {input_dimension, output_dimension};
     Tensor *weight = tensor_zeros(shape, 2);
-    float *data;
-    size_t diagonal;
 
     if (weight == NULL) {
         return NULL;
     }
 
-    /* Identity-like initialization also works when the matrix is rectangular. */
-    data = tensor_data_mut(weight);
-    diagonal = input_dimension < output_dimension ? input_dimension : output_dimension;
-    for (size_t i = 0; i < diagonal; ++i) {
-        data[i * output_dimension + i] = 1.0f;
-    }
+    (void)tensor_fill_xavier(weight, input_dimension, output_dimension, seed);
 
     return weight;
 }
@@ -54,9 +52,9 @@ MlpBlock *mlp_create(size_t input_dimension, size_t hidden_dimension)
 
     layer->input_dimension = input_dimension;
     layer->hidden_dimension = hidden_dimension;
-    layer->input_weight = create_weight(input_dimension, hidden_dimension);
+    layer->input_weight = create_weight(input_dimension, hidden_dimension, 0x3001u);
     layer->input_bias = create_bias(hidden_dimension);
-    layer->output_weight = create_weight(hidden_dimension, input_dimension);
+    layer->output_weight = create_weight(hidden_dimension, input_dimension, 0x3002u);
     layer->output_bias = create_bias(input_dimension);
 
     if (layer->input_weight == NULL || layer->input_bias == NULL

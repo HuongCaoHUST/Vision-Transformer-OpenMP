@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 #include "cls_token.h"
+#include "initializer.h"
 #include "patch_embedding.h"
 #include "position_embedding.h"
 #include "transformer_encoder.h"
@@ -23,19 +24,12 @@ static Tensor *create_classifier_weight(size_t input_dimension, size_t output_di
 {
     size_t shape[2] = {input_dimension, output_dimension};
     Tensor *weight = tensor_zeros(shape, 2);
-    float *data;
-    size_t diagonal;
-    size_t i;
 
     if (weight == NULL) {
         return NULL;
     }
 
-    data = tensor_data_mut(weight);
-    diagonal = input_dimension < output_dimension ? input_dimension : output_dimension;
-    for (i = 0; i < diagonal; ++i) {
-        data[i * output_dimension + i] = 1.0f;
-    }
+    (void)tensor_fill_xavier(weight, input_dimension, output_dimension, 0x4001u);
     return weight;
 }
 

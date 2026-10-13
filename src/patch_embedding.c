@@ -2,6 +2,8 @@
 
 #include <stdlib.h>
 
+#include "initializer.h"
+
 struct PatchEmbedding {
     size_t image_height;
     size_t image_width;
@@ -72,17 +74,8 @@ PatchEmbedding *patch_embedding_create(
         return NULL;
     }
 
-    /* Identity-like initialization for a useful forward-pass baseline. */
-    {
-        float *weights = tensor_data_mut(layer->weights);
-        size_t diagonal = layer->patch_dimension < embedding_dim
-            ? layer->patch_dimension : embedding_dim;
-        size_t i;
-
-        for (i = 0; i < diagonal; ++i) {
-            weights[i * embedding_dim + i] = 1.0f;
-        }
-    }
+    (void)tensor_fill_xavier(
+        layer->weights, layer->patch_dimension, embedding_dim, 0x1001u);
 
     return layer;
 }

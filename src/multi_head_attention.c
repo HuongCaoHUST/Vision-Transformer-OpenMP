@@ -3,6 +3,8 @@
 #include <math.h>
 #include <stdlib.h>
 
+#include "initializer.h"
+
 struct MultiHeadAttention {
     size_t embedding_dimension;
     size_t number_of_heads;
@@ -17,23 +19,18 @@ struct MultiHeadAttention {
     Tensor *output_bias;
 };
 
-static void initialize_identity(Tensor *matrix, size_t dimension)
+static void initialize_projection(Tensor *matrix, size_t dimension, uint32_t seed)
 {
-    float *data = tensor_data_mut(matrix);
-    size_t i;
-
-    for (i = 0; i < dimension; ++i) {
-        data[i * dimension + i] = 1.0f;
-    }
+    (void)tensor_fill_xavier(matrix, dimension, dimension, seed);
 }
 
-static Tensor *create_projection(size_t embedding_dimension)
+static Tensor *create_projection(size_t embedding_dimension, uint32_t seed)
 {
     size_t shape[2] = {embedding_dimension, embedding_dimension};
     Tensor *projection = tensor_zeros(shape, 2);
 
     if (projection != NULL) {
-        initialize_identity(projection, embedding_dimension);
+        initialize_projection(projection, embedding_dimension, seed);
     }
 
     return projection;
@@ -64,10 +61,10 @@ MultiHeadAttention *multi_head_attention_create(
     layer->embedding_dimension = embedding_dimension;
     layer->number_of_heads = number_of_heads;
     layer->head_dimension = embedding_dimension / number_of_heads;
-    layer->query_weight = create_projection(embedding_dimension);
-    layer->key_weight = create_projection(embedding_dimension);
-    layer->value_weight = create_projection(embedding_dimension);
-    layer->output_weight = create_projection(embedding_dimension);
+    layer->query_weight = create_projection(embedding_dimension, 0x2001u);
+    layer->key_weight = create_projection(embedding_dimension, 0x2002u);
+    layer->value_weight = create_projection(embedding_dimension, 0x2003u);
+    layer->output_weight = create_projection(embedding_dimension, 0x2004u);
     layer->query_bias = create_bias(embedding_dimension);
     layer->key_bias = create_bias(embedding_dimension);
     layer->value_bias = create_bias(embedding_dimension);

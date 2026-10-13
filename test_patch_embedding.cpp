@@ -13,6 +13,7 @@
 #include "transformer_encoder.h"
 #include "vision_transformer.h"
 #include "softmax.h"
+#include "cross_entropy.h"
 
 using namespace std;
 
@@ -150,6 +151,8 @@ int main(int argc, char **argv)
     VisionTransformer *vit = nullptr;
     Tensor *logits = nullptr;
     Tensor *probabilities = nullptr;
+    Tensor *loss_gradient = nullptr;
+    float loss = 0.0f;
 
     if (image_tensor != nullptr && layer != nullptr) {
         embeddings = patch_embedding_forward(layer, image_tensor);
@@ -177,10 +180,13 @@ int main(int argc, char **argv)
     vit = vision_transformer_create(32, 32, 8, 3, 64, 4, 256, 2, 10);
     logits = vision_transformer_forward(vit, image_tensor);
     probabilities = softmax_forward(logits);
+    const TensorStatus loss_status = cross_entropy_loss(
+        logits, 0, &loss, &loss_gradient);
 
     if (tokens == nullptr || positioned_tokens == nullptr || normalized_tokens == nullptr
         || attention_output == nullptr || mlp_output == nullptr || encoder_output == nullptr
-        || logits == nullptr || probabilities == nullptr) {
+        || logits == nullptr || probabilities == nullptr
+        || loss_status != TENSOR_OK || loss_gradient == nullptr) {
         cerr << "Transformer input pipeline failed\n";
         tensor_free(embeddings);
         tensor_free(tokens);
@@ -191,6 +197,7 @@ int main(int argc, char **argv)
         tensor_free(encoder_output);
         tensor_free(logits);
         tensor_free(probabilities);
+        tensor_free(loss_gradient);
         cls_token_free(cls_layer);
         position_embedding_free(position_layer);
         layer_norm_free(norm_layer);
@@ -229,6 +236,9 @@ int main(int argc, char **argv)
 
     cout << "Predicted class: " << predicted_class << '\n';
     cout << "Predicted probability: " << probability_data[predicted_class] << '\n';
+    cout << "Cross-entropy loss (target class 0): " << loss << '\n';
+    cout << "Loss gradient shape: [" << tensor_shape(loss_gradient)[0] << ", "
+         << tensor_shape(loss_gradient)[1] << "]\n";
     cout << "Saved: " << grid_path << '\n';
     cout << "Saved: " << montage_path << '\n';
 
@@ -241,6 +251,7 @@ int main(int argc, char **argv)
     tensor_free(encoder_output);
     tensor_free(logits);
     tensor_free(probabilities);
+    tensor_free(loss_gradient);
     cls_token_free(cls_layer);
     position_embedding_free(position_layer);
     layer_norm_free(norm_layer);
