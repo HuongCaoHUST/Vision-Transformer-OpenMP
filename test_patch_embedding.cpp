@@ -5,6 +5,10 @@
 #include <string>
 
 #include "patch_embedding.h"
+#include "cls_token.h"
+#include "position_embedding.h"
+#include "layer_norm.h"
+#include "multi_head_attention.h"
 
 using namespace std;
 
@@ -127,6 +131,14 @@ int main(int argc, char **argv)
         image.channels(),
         64);
     Tensor *embeddings = nullptr;
+    ClsToken *cls_layer = nullptr;
+    PositionEmbedding *position_layer = nullptr;
+    LayerNorm *norm_layer = nullptr;
+    MultiHeadAttention *attention_layer = nullptr;
+    Tensor *tokens = nullptr;
+    Tensor *positioned_tokens = nullptr;
+    Tensor *normalized_tokens = nullptr;
+    Tensor *attention_output = nullptr;
 
     if (image_tensor != nullptr && layer != nullptr) {
         embeddings = patch_embedding_forward(layer, image_tensor);
@@ -139,15 +151,51 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
+    cls_layer = cls_token_create(64);
+    tokens = cls_token_forward(cls_layer, embeddings);
+    position_layer = position_embedding_create(17, 64);
+    positioned_tokens = position_embedding_forward(position_layer, tokens);
+    norm_layer = layer_norm_create(64, 1e-5f);
+    normalized_tokens = layer_norm_forward(norm_layer, positioned_tokens);
+    attention_layer = multi_head_attention_create(64, 4);
+    attention_output = multi_head_attention_forward(attention_layer, normalized_tokens);
+
+    if (tokens == nullptr || positioned_tokens == nullptr || normalized_tokens == nullptr
+        || attention_output == nullptr) {
+        cerr << "Transformer input pipeline failed\n";
+        tensor_free(embeddings);
+        tensor_free(tokens);
+        tensor_free(positioned_tokens);
+        tensor_free(normalized_tokens);
+        tensor_free(attention_output);
+        cls_token_free(cls_layer);
+        position_embedding_free(position_layer);
+        layer_norm_free(norm_layer);
+        multi_head_attention_free(attention_layer);
+        tensor_free(image_tensor);
+        patch_embedding_free(layer);
+        return EXIT_FAILURE;
+    }
+
     cout << "Image: " << image.cols << "x" << image.rows << '\n';
     cout << "Patch size: " << patch_size << "x" << patch_size << '\n';
     cout << "Number of patches: " << number_of_patches << '\n';
     cout << "Embedding shape: [" << tensor_shape(embeddings)[0] << ", "
          << tensor_shape(embeddings)[1] << "]\n";
+    cout << "Attention output shape: [" << tensor_shape(attention_output)[0] << ", "
+         << tensor_shape(attention_output)[1] << "]\n";
     cout << "Saved: " << grid_path << '\n';
     cout << "Saved: " << montage_path << '\n';
 
     tensor_free(embeddings);
+    tensor_free(tokens);
+    tensor_free(positioned_tokens);
+    tensor_free(normalized_tokens);
+    tensor_free(attention_output);
+    cls_token_free(cls_layer);
+    position_embedding_free(position_layer);
+    layer_norm_free(norm_layer);
+    multi_head_attention_free(attention_layer);
     tensor_free(image_tensor);
     patch_embedding_free(layer);
     return EXIT_SUCCESS;
