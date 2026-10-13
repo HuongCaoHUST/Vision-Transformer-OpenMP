@@ -12,6 +12,7 @@
 #include "mlp.h"
 #include "transformer_encoder.h"
 #include "vision_transformer.h"
+#include "softmax.h"
 
 using namespace std;
 
@@ -148,6 +149,7 @@ int main(int argc, char **argv)
     Tensor *encoder_output = nullptr;
     VisionTransformer *vit = nullptr;
     Tensor *logits = nullptr;
+    Tensor *probabilities = nullptr;
 
     if (image_tensor != nullptr && layer != nullptr) {
         embeddings = patch_embedding_forward(layer, image_tensor);
@@ -174,10 +176,11 @@ int main(int argc, char **argv)
     encoder_output = transformer_encoder_forward(encoder, positioned_tokens);
     vit = vision_transformer_create(32, 32, 8, 3, 64, 4, 256, 2, 10);
     logits = vision_transformer_forward(vit, image_tensor);
+    probabilities = softmax_forward(logits);
 
     if (tokens == nullptr || positioned_tokens == nullptr || normalized_tokens == nullptr
         || attention_output == nullptr || mlp_output == nullptr || encoder_output == nullptr
-        || logits == nullptr) {
+        || logits == nullptr || probabilities == nullptr) {
         cerr << "Transformer input pipeline failed\n";
         tensor_free(embeddings);
         tensor_free(tokens);
@@ -187,6 +190,7 @@ int main(int argc, char **argv)
         tensor_free(mlp_output);
         tensor_free(encoder_output);
         tensor_free(logits);
+        tensor_free(probabilities);
         cls_token_free(cls_layer);
         position_embedding_free(position_layer);
         layer_norm_free(norm_layer);
@@ -212,6 +216,19 @@ int main(int argc, char **argv)
          << tensor_shape(encoder_output)[1] << "]\n";
     cout << "ViT logits shape: [" << tensor_shape(logits)[0] << ", "
          << tensor_shape(logits)[1] << "]\n";
+    cout << "Probability shape: [" << tensor_shape(probabilities)[0] << ", "
+         << tensor_shape(probabilities)[1] << "]\n";
+
+    const float *probability_data = tensor_data(probabilities);
+    size_t predicted_class = 0;
+    for (size_t class_index = 1; class_index < tensor_shape(probabilities)[1]; ++class_index) {
+        if (probability_data[class_index] > probability_data[predicted_class]) {
+            predicted_class = class_index;
+        }
+    }
+
+    cout << "Predicted class: " << predicted_class << '\n';
+    cout << "Predicted probability: " << probability_data[predicted_class] << '\n';
     cout << "Saved: " << grid_path << '\n';
     cout << "Saved: " << montage_path << '\n';
 
@@ -223,6 +240,7 @@ int main(int argc, char **argv)
     tensor_free(mlp_output);
     tensor_free(encoder_output);
     tensor_free(logits);
+    tensor_free(probabilities);
     cls_token_free(cls_layer);
     position_embedding_free(position_layer);
     layer_norm_free(norm_layer);
