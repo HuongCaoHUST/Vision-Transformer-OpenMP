@@ -3,7 +3,7 @@ PKG_CONFIG ?= pkg-config
 
 TARGET    := build/vision_transformer
 SOURCES   := test.cpp
-TENSOR_OBJECTS := build/tensor.o build/patch_embedding.o build/cls_token.o build/position_embedding.o
+TENSOR_OBJECTS := build/tensor.o build/patch_embedding.o build/cls_token.o build/position_embedding.o build/layer_norm.o build/softmax.o
 PATCH_TEST := build/test_patch_embedding
 
 CPPFLAGS  += $(shell $(PKG_CONFIG) --cflags opencv4 2>/dev/null)
@@ -34,6 +34,14 @@ build/cls_token.o: src/cls_token.c include/cls_token.h include/tensor.h
 	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
 
 build/position_embedding.o: src/position_embedding.c include/position_embedding.h include/tensor.h
+	@mkdir -p $(dir $@)
+	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
+
+build/layer_norm.o: src/layer_norm.c include/layer_norm.h include/tensor.h
+	@mkdir -p $(dir $@)
+	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
+
+build/softmax.o: src/softmax.c include/softmax.h include/tensor.h
 	@mkdir -p $(dir $@)
 	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
 
