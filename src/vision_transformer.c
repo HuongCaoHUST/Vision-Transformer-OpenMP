@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 #include "cls_token.h"
+#include "cross_entropy.h"
 #include "initializer.h"
 #include "patch_embedding.h"
 #include "position_embedding.h"
@@ -134,6 +135,174 @@ void vision_transformer_free(VisionTransformer *model)
     tensor_free(model->classifier_weight);
     tensor_free(model->classifier_bias);
     free(model);
+}
+
+Tensor *vision_transformer_forward_features(
+    const VisionTransformer *model,
+    const Tensor *image)
+{
+    Tensor *patches;
+    Tensor *tokens;
+    Tensor *positioned_tokens;
+    Tensor *encoded_tokens;
+    Tensor *next_tokens;
+    Tensor *features;
+    const float *encoded_data;
+    float *feature_data;
+    size_t i;
+
+    if (model == NULL || image == NULL) {
+        return NULL;
+    }
+
+    patches = patch_embedding_forward(model->patch_embedding, image);
+    tokens = cls_token_forward(model->cls_token, patches);
+    positioned_tokens = position_embedding_forward(model->position_embedding, tokens);
+    if (patches == NULL || tokens == NULL || positioned_tokens == NULL) {
+        tensor_free(patches);
+        tensor_free(tokens);
+        tensor_free(positioned_tokens);
+        return NULL;
+    }
+
+    encoded_tokens = positioned_tokens;
+    for (i = 0; i < model->number_of_encoder_blocks; ++i) {
+        next_tokens = transformer_encoder_forward(
+            model->encoder_blocks[i], encoded_tokens);
+        if (next_tokens == NULL) {
+            tensor_free(patches);
+            tensor_free(tokens);
+            tensor_free(positioned_tokens);
+            if (encoded_tokens != positioned_tokens) {
+                tensor_free(encoded_tokens);
+            }
+            return NULL;
+        }
+
+        if (encoded_tokens != positioned_tokens) {
+            tensor_free(encoded_tokens);
+        }
+        encoded_tokens = next_tokens;
+    }
+
+    {
+        size_t feature_shape[2] = {1, model->embedding_dimension};
+        features = tensor_zeros(feature_shape, 2);
+    }
+    if (features == NULL) {
+        tensor_free(patches);
+        tensor_free(tokens);
+        tensor_free(positioned_tokens);
+        if (encoded_tokens != positioned_tokens) {
+            tensor_free(encoded_tokens);
+        }
+        return NULL;
+    }
+
+    encoded_data = tensor_data(encoded_tokens);
+    feature_data = tensor_data_mut(features);
+    for (i = 0; i < model->embedding_dimension; ++i) {
+        feature_data[i] = encoded_data[i];
+    }
+
+    tensor_free(patches);
+    tensor_free(tokens);
+    tensor_free(positioned_tokens);
+    if (encoded_tokens != positioned_tokens) {
+        tensor_free(encoded_tokens);
+    }
+    return features;
+}
+
+static Tensor *classify_features(
+    const VisionTransformer *model,
+    const Tensor *features)
+{
+    const float *feature_data;
+    const float *weight_data;
+    const float *bias_data;
+    float *logit_data;
+    size_t shape[2] = {1, model->number_of_classes};
+    Tensor *logits = tensor_zeros(shape, 2);
+    size_t class_index;
+    size_t embedding_index;
+
+    if (logits == NULL) {
+        return NULL;
+    }
+
+    feature_data = tensor_data(features);
+    weight_data = tensor_data(model->classifier_weight);
+    bias_data = tensor_data(model->classifier_bias);
+    logit_data = tensor_data_mut(logits);
+
+    for (class_index = 0; class_index < model->number_of_classes; ++class_index) {
+        float value = bias_data[class_index];
+        for (embedding_index = 0;
+             embedding_index < model->embedding_dimension;
+             ++embedding_index) {
+            value += feature_data[embedding_index]
+                * weight_data[embedding_index * model->number_of_classes + class_index];
+        }
+        logit_data[class_index] = value;
+    }
+
+    return logits;
+}
+
+TensorStatus vision_transformer_train_classifier_step(
+    VisionTransformer *model,
+    const Tensor *features,
+    size_t target_class,
+    float learning_rate,
+    float *loss)
+{
+    Tensor *logits;
+    Tensor *gradient;
+    const float *feature_data;
+    const float *gradient_data;
+    float *weight_data;
+    float *bias_data;
+    size_t class_index;
+    size_t embedding_index;
+    TensorStatus status;
+
+    if (model == NULL || features == NULL || loss == NULL || learning_rate <= 0.0f
+        || tensor_ndim(features) != 2
+        || tensor_shape(features)[0] != 1
+        || tensor_shape(features)[1] != model->embedding_dimension) {
+        return TENSOR_ERROR_INVALID_ARGUMENT;
+    }
+
+    logits = classify_features(model, features);
+    if (logits == NULL) {
+        return TENSOR_ERROR_ALLOCATION;
+    }
+
+    gradient = NULL;
+    status = cross_entropy_loss(logits, target_class, loss, &gradient);
+    tensor_free(logits);
+    if (status != TENSOR_OK) {
+        return status;
+    }
+
+    feature_data = tensor_data(features);
+    gradient_data = tensor_data(gradient);
+    weight_data = tensor_data_mut(model->classifier_weight);
+    bias_data = tensor_data_mut(model->classifier_bias);
+
+    for (class_index = 0; class_index < model->number_of_classes; ++class_index) {
+        for (embedding_index = 0;
+             embedding_index < model->embedding_dimension;
+             ++embedding_index) {
+            weight_data[embedding_index * model->number_of_classes + class_index] -=
+                learning_rate * feature_data[embedding_index] * gradient_data[class_index];
+        }
+        bias_data[class_index] -= learning_rate * gradient_data[class_index];
+    }
+
+    tensor_free(gradient);
+    return TENSOR_OK;
 }
 
 Tensor *vision_transformer_forward(

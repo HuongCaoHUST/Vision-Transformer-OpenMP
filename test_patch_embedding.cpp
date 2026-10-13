@@ -152,7 +152,12 @@ int main(int argc, char **argv)
     Tensor *logits = nullptr;
     Tensor *probabilities = nullptr;
     Tensor *loss_gradient = nullptr;
+    Tensor *features = nullptr;
+    Tensor *updated_logits = nullptr;
+    Tensor *updated_gradient = nullptr;
     float loss = 0.0f;
+    float train_loss = 0.0f;
+    float updated_loss = 0.0f;
 
     if (image_tensor != nullptr && layer != nullptr) {
         embeddings = patch_embedding_forward(layer, image_tensor);
@@ -182,11 +187,19 @@ int main(int argc, char **argv)
     probabilities = softmax_forward(logits);
     const TensorStatus loss_status = cross_entropy_loss(
         logits, 0, &loss, &loss_gradient);
+    features = vision_transformer_forward_features(vit, image_tensor);
+    const TensorStatus train_status = vision_transformer_train_classifier_step(
+        vit, features, 0, 0.01f, &train_loss);
+    updated_logits = vision_transformer_forward(vit, image_tensor);
+    const TensorStatus updated_loss_status = cross_entropy_loss(
+        updated_logits, 0, &updated_loss, &updated_gradient);
 
     if (tokens == nullptr || positioned_tokens == nullptr || normalized_tokens == nullptr
         || attention_output == nullptr || mlp_output == nullptr || encoder_output == nullptr
         || logits == nullptr || probabilities == nullptr
-        || loss_status != TENSOR_OK || loss_gradient == nullptr) {
+        || loss_status != TENSOR_OK || loss_gradient == nullptr || features == nullptr
+        || train_status != TENSOR_OK || updated_logits == nullptr
+        || updated_loss_status != TENSOR_OK || updated_gradient == nullptr) {
         cerr << "Transformer input pipeline failed\n";
         tensor_free(embeddings);
         tensor_free(tokens);
@@ -198,6 +211,9 @@ int main(int argc, char **argv)
         tensor_free(logits);
         tensor_free(probabilities);
         tensor_free(loss_gradient);
+        tensor_free(features);
+        tensor_free(updated_logits);
+        tensor_free(updated_gradient);
         cls_token_free(cls_layer);
         position_embedding_free(position_layer);
         layer_norm_free(norm_layer);
@@ -239,6 +255,9 @@ int main(int argc, char **argv)
     cout << "Cross-entropy loss (target class 0): " << loss << '\n';
     cout << "Loss gradient shape: [" << tensor_shape(loss_gradient)[0] << ", "
          << tensor_shape(loss_gradient)[1] << "]\n";
+    cout << "Loss before classifier update: " << loss << '\n';
+    cout << "Loss used for classifier update: " << train_loss << '\n';
+    cout << "Loss after classifier update: " << updated_loss << '\n';
     cout << "Saved: " << grid_path << '\n';
     cout << "Saved: " << montage_path << '\n';
 
@@ -252,6 +271,9 @@ int main(int argc, char **argv)
     tensor_free(logits);
     tensor_free(probabilities);
     tensor_free(loss_gradient);
+    tensor_free(features);
+    tensor_free(updated_logits);
+    tensor_free(updated_gradient);
     cls_token_free(cls_layer);
     position_embedding_free(position_layer);
     layer_norm_free(norm_layer);

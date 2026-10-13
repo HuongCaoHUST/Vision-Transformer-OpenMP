@@ -29,6 +29,19 @@ Tensor *vision_transformer_forward(
     const VisionTransformer *model,
     const Tensor *image);
 
+/* Return the encoded CLS feature with shape [1, embedding_dimension]. */
+Tensor *vision_transformer_forward_features(
+    const VisionTransformer *model,
+    const Tensor *image);
+
+/* Update only the classification head using one labeled example. */
+TensorStatus vision_transformer_train_classifier_step(
+    VisionTransformer *model,
+    const Tensor *features,
+    size_t target_class,
+    float learning_rate,
+    float *loss);
+
 size_t vision_transformer_number_of_classes(const VisionTransformer *model);
 size_t vision_transformer_number_of_blocks(const VisionTransformer *model);
 
