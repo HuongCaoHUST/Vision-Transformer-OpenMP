@@ -4,13 +4,16 @@ PKG_CONFIG ?= pkg-config
 TARGET    := build/vision_transformer
 SOURCES   := test.cpp
 TENSOR_OBJECTS := build/tensor.o build/initializer.o build/patch_embedding.o build/cls_token.o build/position_embedding.o build/layer_norm.o build/softmax.o build/multi_head_attention.o build/mlp.o build/transformer_encoder.o build/vision_transformer.o build/cross_entropy.o
+DATASET_OBJECTS := build/cifar10_dataset.o
+DATASET_TEST := build/test_cifar10
+TRAIN_TEST := build/train_cifar10
 PATCH_TEST := build/test_patch_embedding
 
 CPPFLAGS  += $(shell $(PKG_CONFIG) --cflags opencv4 2>/dev/null)
 CXXFLAGS  += -std=c++17 -O2 -Wall -Wextra -fopenmp
 LDLIBS    += $(shell $(PKG_CONFIG) --libs opencv4 2>/dev/null)
 
-.PHONY: all run test-patches clean help
+.PHONY: all run test-patches test-cifar10 train-cifar10 clean help
 
 all: $(TARGET)
 
@@ -75,6 +78,24 @@ $(PATCH_TEST): test_patch_embedding.cpp $(TENSOR_OBJECTS)
 
 test-patches: $(PATCH_TEST)
 	./$(PATCH_TEST)
+
+build/cifar10_dataset.o: src/cifar10_dataset.cpp include/cifar10_dataset.hpp include/tensor.h
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -Iinclude -c $< -o $@
+
+$(DATASET_TEST): test_cifar10.cpp $(DATASET_OBJECTS) build/tensor.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -Iinclude $^ $(LDFLAGS) $(LDLIBS) -o $@
+
+test-cifar10: $(DATASET_TEST)
+	./$(DATASET_TEST)
+
+$(TRAIN_TEST): train_cifar10.cpp $(DATASET_OBJECTS) $(TENSOR_OBJECTS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -Iinclude $^ $(LDFLAGS) $(LDLIBS) -o $@
+
+train-cifar10: $(TRAIN_TEST)
+	./$(TRAIN_TEST)
 
 clean:
 	rm -rf build
