@@ -191,3 +191,80 @@ float *patch_embedding_bias_mut(PatchEmbedding *layer)
 {
     return layer == NULL ? NULL : tensor_data_mut(layer->bias);
 }
+
+TensorStatus patch_embedding_backward(
+    PatchEmbedding *layer,
+    const Tensor *image,
+    const Tensor *output_gradient,
+    float learning_rate)
+{
+    const size_t *gradient_shape;
+    const float *image_data;
+    const float *gradient_data;
+    float *weight_data;
+    float *bias_data;
+    size_t patch_row;
+    size_t patch_column;
+    size_t row;
+    size_t column;
+    size_t channel;
+    size_t patch_index;
+    size_t patch_offset;
+    size_t embedding_index;
+
+    if (layer == NULL || image == NULL || output_gradient == NULL
+        || learning_rate <= 0.0f || tensor_ndim(image) != 3
+        || tensor_ndim(output_gradient) != 2) {
+        return TENSOR_ERROR_INVALID_ARGUMENT;
+    }
+
+    if (tensor_shape(image)[0] != layer->image_height
+        || tensor_shape(image)[1] != layer->image_width
+        || tensor_shape(image)[2] != layer->channels) {
+        return TENSOR_ERROR_SHAPE_MISMATCH;
+    }
+
+    gradient_shape = tensor_shape(output_gradient);
+    if (gradient_shape[0] != layer->number_of_patches
+        || gradient_shape[1] != layer->embedding_dimension) {
+        return TENSOR_ERROR_SHAPE_MISMATCH;
+    }
+
+    image_data = tensor_data(image);
+    gradient_data = tensor_data(output_gradient);
+    weight_data = tensor_data_mut(layer->weights);
+    bias_data = tensor_data_mut(layer->bias);
+
+    for (patch_row = 0; patch_row < layer->patches_per_column; ++patch_row) {
+        for (patch_column = 0; patch_column < layer->patches_per_row; ++patch_column) {
+            patch_index = patch_row * layer->patches_per_row + patch_column;
+            for (embedding_index = 0;
+                 embedding_index < layer->embedding_dimension;
+                 ++embedding_index) {
+                const float output_gradient_value =
+                    gradient_data[patch_index * layer->embedding_dimension + embedding_index];
+                patch_offset = 0;
+
+                bias_data[embedding_index] -= learning_rate * output_gradient_value;
+                for (row = 0; row < layer->patch_size; ++row) {
+                    for (column = 0; column < layer->patch_size; ++column) {
+                        const size_t image_row = patch_row * layer->patch_size + row;
+                        const size_t image_column = patch_column * layer->patch_size + column;
+                        const size_t pixel_offset =
+                            (image_row * layer->image_width + image_column) * layer->channels;
+
+                        for (channel = 0; channel < layer->channels; ++channel) {
+                            weight_data[patch_offset * layer->embedding_dimension
+                                        + embedding_index] -=
+                                learning_rate * image_data[pixel_offset + channel]
+                                * output_gradient_value;
+                            ++patch_offset;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return TENSOR_OK;
+}

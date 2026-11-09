@@ -17,6 +17,13 @@ void layer_norm_free(LayerNorm *layer);
 /* Normalize the last dimension of a 2D sequence tensor. */
 Tensor *layer_norm_forward(const LayerNorm *layer, const Tensor *input);
 
+/* Backpropagate through layer normalization and update gamma/beta. */
+Tensor *layer_norm_backward(
+    LayerNorm *layer,
+    const Tensor *input,
+    const Tensor *output_gradient,
+    float learning_rate);
+
 float *layer_norm_gamma_mut(LayerNorm *layer);
 float *layer_norm_beta_mut(LayerNorm *layer);
 size_t layer_norm_dimension(const LayerNorm *layer);

@@ -20,6 +20,12 @@ Tensor *cls_token_forward(const ClsToken *layer, const Tensor *patch_embeddings)
 float *cls_token_data_mut(ClsToken *layer);
 size_t cls_token_embedding_dimension(const ClsToken *layer);
 
+/* Return the gradient for patch embeddings and update the CLS token. */
+Tensor *cls_token_backward(
+    ClsToken *layer,
+    const Tensor *output_gradient,
+    float learning_rate);
+
 #ifdef __cplusplus
 }
 #endif

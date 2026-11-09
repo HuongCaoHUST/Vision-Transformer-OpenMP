@@ -25,6 +25,12 @@ float *position_embedding_data_mut(PositionEmbedding *layer);
 size_t position_embedding_sequence_length(const PositionEmbedding *layer);
 size_t position_embedding_embedding_dimension(const PositionEmbedding *layer);
 
+/* Return the input gradient and update the positional embedding. */
+Tensor *position_embedding_backward(
+    PositionEmbedding *layer,
+    const Tensor *output_gradient,
+    float learning_rate);
+
 #ifdef __cplusplus
 }
 #endif

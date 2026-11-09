@@ -95,8 +95,11 @@ VisionTransformer *vision_transformer_create(
     }
 
     for (i = 0; i < number_of_encoder_blocks; ++i) {
-        model->encoder_blocks[i] = transformer_encoder_create(
-            embedding_dimension, number_of_heads, mlp_hidden_dimension);
+        model->encoder_blocks[i] = transformer_encoder_create_seeded(
+            embedding_dimension,
+            number_of_heads,
+            mlp_hidden_dimension,
+            0x5000u + (uint32_t)i * 0x100u);
         if (model->encoder_blocks[i] == NULL) {
             vision_transformer_free(model);
             return NULL;
@@ -303,6 +306,178 @@ TensorStatus vision_transformer_train_classifier_step(
 
     tensor_free(gradient);
     return TENSOR_OK;
+}
+
+TensorStatus vision_transformer_train_step(
+    VisionTransformer *model,
+    const Tensor *image,
+    size_t target_class,
+    float learning_rate,
+    float *loss)
+{
+    Tensor *patches = NULL;
+    Tensor *tokens = NULL;
+    Tensor *positioned_tokens = NULL;
+    Tensor *features = NULL;
+    Tensor *logits = NULL;
+    Tensor *gradient = NULL;
+    Tensor *feature_gradient = NULL;
+    Tensor *current_gradient = NULL;
+    Tensor *next_gradient = NULL;
+    Tensor *patch_gradient = NULL;
+    Tensor **block_inputs = NULL;
+    Tensor **block_outputs = NULL;
+    TensorStatus status = TENSOR_ERROR_ALLOCATION;
+    size_t feature_shape[2];
+    size_t token_shape[2];
+    size_t i;
+
+    if (model == NULL || image == NULL || loss == NULL || learning_rate <= 0.0f) {
+        return TENSOR_ERROR_INVALID_ARGUMENT;
+    }
+
+    block_inputs = (Tensor **)calloc(
+        model->number_of_encoder_blocks, sizeof(*block_inputs));
+    block_outputs = (Tensor **)calloc(
+        model->number_of_encoder_blocks, sizeof(*block_outputs));
+    if (block_inputs == NULL || block_outputs == NULL) {
+        goto cleanup;
+    }
+
+    patches = patch_embedding_forward(model->patch_embedding, image);
+    tokens = cls_token_forward(model->cls_token, patches);
+    positioned_tokens = position_embedding_forward(model->position_embedding, tokens);
+    if (patches == NULL || tokens == NULL || positioned_tokens == NULL) {
+        goto cleanup;
+    }
+
+    for (i = 0; i < model->number_of_encoder_blocks; ++i) {
+        block_inputs[i] = i == 0 ? positioned_tokens : block_outputs[i - 1];
+        block_outputs[i] = transformer_encoder_forward(
+            model->encoder_blocks[i], block_inputs[i]);
+        if (block_outputs[i] == NULL) {
+            goto cleanup;
+        }
+    }
+
+    feature_shape[0] = 1;
+    feature_shape[1] = model->embedding_dimension;
+    features = tensor_zeros(feature_shape, 2);
+    if (features == NULL) {
+        goto cleanup;
+    }
+    for (i = 0; i < model->embedding_dimension; ++i) {
+        tensor_data_mut(features)[i] =
+            tensor_data(block_outputs[model->number_of_encoder_blocks - 1])[i];
+    }
+
+    logits = classify_features(model, features);
+    if (logits == NULL) {
+        goto cleanup;
+    }
+
+    status = cross_entropy_loss(logits, target_class, loss, &gradient);
+    if (status != TENSOR_OK) {
+        goto cleanup;
+    }
+
+    /* Compute d(feature) with the old classifier weights before updating them. */
+    feature_gradient = tensor_zeros(feature_shape, 2);
+    if (feature_gradient == NULL) {
+        status = TENSOR_ERROR_ALLOCATION;
+        goto cleanup;
+    }
+    for (i = 0; i < model->embedding_dimension; ++i) {
+        size_t class_index;
+        float value = 0.0f;
+        for (class_index = 0; class_index < model->number_of_classes; ++class_index) {
+            value += tensor_data(gradient)[class_index]
+                * tensor_data(model->classifier_weight)[
+                    i * model->number_of_classes + class_index];
+        }
+        tensor_data_mut(feature_gradient)[i] = value;
+    }
+
+    for (i = 0; i < model->embedding_dimension; ++i) {
+        size_t class_index;
+        for (class_index = 0; class_index < model->number_of_classes; ++class_index) {
+            tensor_data_mut(model->classifier_weight)[
+                i * model->number_of_classes + class_index] -=
+                learning_rate * tensor_data(features)[i] * tensor_data(gradient)[class_index];
+        }
+    }
+    for (i = 0; i < model->number_of_classes; ++i) {
+        tensor_data_mut(model->classifier_bias)[i] -=
+            learning_rate * tensor_data(gradient)[i];
+    }
+
+    token_shape[0] = tensor_shape(block_outputs[
+        model->number_of_encoder_blocks - 1])[0];
+    token_shape[1] = model->embedding_dimension;
+    current_gradient = tensor_zeros(token_shape, 2);
+    if (current_gradient == NULL) {
+        status = TENSOR_ERROR_ALLOCATION;
+        goto cleanup;
+    }
+    for (i = 0; i < model->embedding_dimension; ++i) {
+        tensor_data_mut(current_gradient)[i] = tensor_data(feature_gradient)[i];
+    }
+
+    for (i = model->number_of_encoder_blocks; i > 0; --i) {
+        next_gradient = transformer_encoder_backward(
+            model->encoder_blocks[i - 1],
+            block_inputs[i - 1],
+            current_gradient,
+            learning_rate);
+        tensor_free(current_gradient);
+        current_gradient = next_gradient;
+        next_gradient = NULL;
+        if (current_gradient == NULL) {
+            status = TENSOR_ERROR_ALLOCATION;
+            goto cleanup;
+        }
+    }
+
+    next_gradient = position_embedding_backward(
+        model->position_embedding, current_gradient, learning_rate);
+    tensor_free(current_gradient);
+    current_gradient = next_gradient;
+    next_gradient = NULL;
+    if (current_gradient == NULL) {
+        status = TENSOR_ERROR_ALLOCATION;
+        goto cleanup;
+    }
+
+    patch_gradient = cls_token_backward(model->cls_token, current_gradient, learning_rate);
+    tensor_free(current_gradient);
+    current_gradient = NULL;
+    if (patch_gradient == NULL) {
+        status = TENSOR_ERROR_ALLOCATION;
+        goto cleanup;
+    }
+
+    status = patch_embedding_backward(
+        model->patch_embedding, image, patch_gradient, learning_rate);
+
+cleanup:
+    tensor_free(patches);
+    tensor_free(tokens);
+    tensor_free(positioned_tokens);
+    tensor_free(features);
+    tensor_free(logits);
+    tensor_free(gradient);
+    tensor_free(feature_gradient);
+    tensor_free(current_gradient);
+    tensor_free(next_gradient);
+    tensor_free(patch_gradient);
+    if (block_outputs != NULL) {
+        for (i = 0; i < model->number_of_encoder_blocks; ++i) {
+            tensor_free(block_outputs[i]);
+        }
+    }
+    free(block_inputs);
+    free(block_outputs);
+    return status;
 }
 
 Tensor *vision_transformer_forward(

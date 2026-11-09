@@ -34,10 +34,18 @@ Tensor *vision_transformer_forward_features(
     const VisionTransformer *model,
     const Tensor *image);
 
-/* Update only the classification head using one labeled example. */
+/* Legacy linear-probe step: update only the classification head. */
 TensorStatus vision_transformer_train_classifier_step(
     VisionTransformer *model,
     const Tensor *features,
+    size_t target_class,
+    float learning_rate,
+    float *loss);
+
+/* Train the complete ViT on one labeled image with online SGD. */
+TensorStatus vision_transformer_train_step(
+    VisionTransformer *model,
+    const Tensor *image,
     size_t target_class,
     float learning_rate,
     float *loss);

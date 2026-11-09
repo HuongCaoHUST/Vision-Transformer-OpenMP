@@ -37,6 +37,13 @@ size_t patch_embedding_embedding_dimension(const PatchEmbedding *layer);
 float *patch_embedding_weights_mut(PatchEmbedding *layer);
 float *patch_embedding_bias_mut(PatchEmbedding *layer);
 
+/* Backpropagate through the patch projection and update its parameters. */
+TensorStatus patch_embedding_backward(
+    PatchEmbedding *layer,
+    const Tensor *image,
+    const Tensor *output_gradient,
+    float learning_rate);
+
 #ifdef __cplusplus
 }
 #endif

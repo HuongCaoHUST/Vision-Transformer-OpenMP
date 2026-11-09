@@ -37,7 +37,10 @@ static Tensor *create_bias(size_t dimension)
     return tensor_zeros(shape, 1);
 }
 
-MlpBlock *mlp_create(size_t input_dimension, size_t hidden_dimension)
+MlpBlock *mlp_create_seeded(
+    size_t input_dimension,
+    size_t hidden_dimension,
+    uint32_t seed)
 {
     MlpBlock *layer;
 
@@ -52,9 +55,9 @@ MlpBlock *mlp_create(size_t input_dimension, size_t hidden_dimension)
 
     layer->input_dimension = input_dimension;
     layer->hidden_dimension = hidden_dimension;
-    layer->input_weight = create_weight(input_dimension, hidden_dimension, 0x3001u);
+    layer->input_weight = create_weight(input_dimension, hidden_dimension, seed + 1u);
     layer->input_bias = create_bias(hidden_dimension);
-    layer->output_weight = create_weight(hidden_dimension, input_dimension, 0x3002u);
+    layer->output_weight = create_weight(hidden_dimension, input_dimension, seed + 2u);
     layer->output_bias = create_bias(input_dimension);
 
     if (layer->input_weight == NULL || layer->input_bias == NULL
@@ -64,6 +67,11 @@ MlpBlock *mlp_create(size_t input_dimension, size_t hidden_dimension)
     }
 
     return layer;
+}
+
+MlpBlock *mlp_create(size_t input_dimension, size_t hidden_dimension)
+{
+    return mlp_create_seeded(input_dimension, hidden_dimension, 0x3000u);
 }
 
 void mlp_free(MlpBlock *layer)
@@ -108,6 +116,19 @@ static float gelu(float value)
     const float cubic_coefficient = 0.044715f;
     const float inner = coefficient * (value + cubic_coefficient * value * value * value);
     return 0.5f * value * (1.0f + tanhf(inner));
+}
+
+static float gelu_derivative(float value)
+{
+    const float coefficient = 0.7978845608f; /* sqrt(2 / pi) */
+    const float cubic_coefficient = 0.044715f;
+    const float inner = coefficient * (value + cubic_coefficient * value * value * value);
+    const float tanh_inner = tanhf(inner);
+    const float inner_derivative =
+        coefficient * (1.0f + 3.0f * cubic_coefficient * value * value);
+
+    return 0.5f * (1.0f + tanh_inner)
+        + 0.5f * value * (1.0f - tanh_inner * tanh_inner) * inner_derivative;
 }
 
 Tensor *mlp_forward(const MlpBlock *layer, const Tensor *input)
@@ -198,4 +219,134 @@ float *mlp_output_weights_mut(MlpBlock *layer)
 float *mlp_output_bias_mut(MlpBlock *layer)
 {
     return layer == NULL ? NULL : tensor_data_mut(layer->output_bias);
+}
+
+Tensor *mlp_backward(
+    MlpBlock *layer,
+    const Tensor *input,
+    const Tensor *output_gradient,
+    float learning_rate)
+{
+    const size_t *input_shape;
+    const float *input_data;
+    const float *output_gradient_data;
+    float *input_gradient_data;
+    float *input_weight_data;
+    float *input_bias_data;
+    float *output_weight_data;
+    float *output_bias_data;
+    Tensor *input_gradient;
+    float *hidden_linear;
+    float *hidden_gradient;
+    size_t rows;
+    size_t row;
+    size_t input_column;
+    size_t hidden_column;
+    size_t output_column;
+
+    if (layer == NULL || input == NULL || output_gradient == NULL
+        || learning_rate <= 0.0f || tensor_ndim(input) != 2
+        || tensor_ndim(output_gradient) != 2) {
+        return NULL;
+    }
+
+    input_shape = tensor_shape(input);
+    if (input_shape[1] != layer->input_dimension
+        || tensor_shape(output_gradient)[0] != input_shape[0]
+        || tensor_shape(output_gradient)[1] != layer->input_dimension) {
+        return NULL;
+    }
+
+    rows = input_shape[0];
+    input_gradient = tensor_zeros(input_shape, 2);
+    hidden_linear = (float *)calloc(rows * layer->hidden_dimension, sizeof(*hidden_linear));
+    hidden_gradient = (float *)calloc(rows * layer->hidden_dimension, sizeof(*hidden_gradient));
+    if (input_gradient == NULL || hidden_linear == NULL || hidden_gradient == NULL) {
+        tensor_free(input_gradient);
+        free(hidden_linear);
+        free(hidden_gradient);
+        return NULL;
+    }
+
+    input_data = tensor_data(input);
+    output_gradient_data = tensor_data(output_gradient);
+    input_gradient_data = tensor_data_mut(input_gradient);
+    input_weight_data = tensor_data_mut(layer->input_weight);
+    input_bias_data = tensor_data_mut(layer->input_bias);
+    output_weight_data = tensor_data_mut(layer->output_weight);
+    output_bias_data = tensor_data_mut(layer->output_bias);
+
+    for (row = 0; row < rows; ++row) {
+        for (hidden_column = 0; hidden_column < layer->hidden_dimension; ++hidden_column) {
+            float value = input_bias_data[hidden_column];
+            for (input_column = 0; input_column < layer->input_dimension; ++input_column) {
+                value += input_data[row * layer->input_dimension + input_column]
+                    * input_weight_data[input_column * layer->hidden_dimension + hidden_column];
+            }
+            hidden_linear[row * layer->hidden_dimension + hidden_column] = value;
+        }
+    }
+
+    /* Compute all input gradients before changing any MLP parameter. */
+    for (row = 0; row < rows; ++row) {
+        for (hidden_column = 0; hidden_column < layer->hidden_dimension; ++hidden_column) {
+            float gradient = 0.0f;
+            for (output_column = 0; output_column < layer->input_dimension; ++output_column) {
+                gradient += output_gradient_data[row * layer->input_dimension + output_column]
+                    * output_weight_data[hidden_column * layer->input_dimension + output_column];
+            }
+            hidden_gradient[row * layer->hidden_dimension + hidden_column] =
+                gradient * gelu_derivative(
+                    hidden_linear[row * layer->hidden_dimension + hidden_column]);
+        }
+
+        for (input_column = 0; input_column < layer->input_dimension; ++input_column) {
+            float gradient = 0.0f;
+            for (hidden_column = 0; hidden_column < layer->hidden_dimension; ++hidden_column) {
+                gradient += hidden_gradient[row * layer->hidden_dimension + hidden_column]
+                    * input_weight_data[input_column * layer->hidden_dimension + hidden_column];
+            }
+            input_gradient_data[row * layer->input_dimension + input_column] = gradient;
+        }
+    }
+
+    for (hidden_column = 0; hidden_column < layer->hidden_dimension; ++hidden_column) {
+        float bias_gradient = 0.0f;
+        for (row = 0; row < rows; ++row) {
+            bias_gradient += hidden_gradient[row * layer->hidden_dimension + hidden_column];
+            for (input_column = 0; input_column < layer->input_dimension; ++input_column) {
+                input_weight_data[input_column * layer->hidden_dimension + hidden_column] -=
+                    learning_rate
+                    * input_data[row * layer->input_dimension + input_column]
+                    * hidden_gradient[row * layer->hidden_dimension + hidden_column];
+            }
+        }
+        input_bias_data[hidden_column] -= learning_rate * bias_gradient;
+    }
+
+    for (hidden_column = 0; hidden_column < layer->hidden_dimension; ++hidden_column) {
+        for (output_column = 0; output_column < layer->input_dimension; ++output_column) {
+            float weight_gradient = 0.0f;
+            for (row = 0; row < rows; ++row) {
+                const float activated = gelu(
+                    hidden_linear[row * layer->hidden_dimension + hidden_column]);
+                weight_gradient += activated
+                    * output_gradient_data[row * layer->input_dimension + output_column];
+            }
+            output_weight_data[hidden_column * layer->input_dimension + output_column] -=
+                learning_rate * weight_gradient;
+        }
+    }
+
+    for (output_column = 0; output_column < layer->input_dimension; ++output_column) {
+        float bias_gradient = 0.0f;
+        for (row = 0; row < rows; ++row) {
+            bias_gradient += output_gradient_data[row * layer->input_dimension + output_column];
+        }
+        output_bias_data[output_column] -= learning_rate * bias_gradient;
+    }
+
+    free(hidden_linear);
+    free(hidden_gradient);
+    return input_gradient;
 }

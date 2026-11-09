@@ -36,15 +36,15 @@ build/cross_entropy.o: src/cross_entropy.c include/cross_entropy.h include/tenso
 	@mkdir -p $(dir $@)
 	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
 
-build/patch_embedding.o: src/patch_embedding.c include/patch_embedding.h include/tensor.h
+build/patch_embedding.o: src/patch_embedding.c include/patch_embedding.h include/tensor.h include/initializer.h
 	@mkdir -p $(dir $@)
 	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
 
-build/cls_token.o: src/cls_token.c include/cls_token.h include/tensor.h
+build/cls_token.o: src/cls_token.c include/cls_token.h include/tensor.h include/initializer.h
 	@mkdir -p $(dir $@)
 	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
 
-build/position_embedding.o: src/position_embedding.c include/position_embedding.h include/tensor.h
+build/position_embedding.o: src/position_embedding.c include/position_embedding.h include/tensor.h include/initializer.h
 	@mkdir -p $(dir $@)
 	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
 
@@ -56,11 +56,11 @@ build/softmax.o: src/softmax.c include/softmax.h include/tensor.h
 	@mkdir -p $(dir $@)
 	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
 
-build/multi_head_attention.o: src/multi_head_attention.c include/multi_head_attention.h include/tensor.h
+build/multi_head_attention.o: src/multi_head_attention.c include/multi_head_attention.h include/tensor.h include/initializer.h
 	@mkdir -p $(dir $@)
 	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
 
-build/mlp.o: src/mlp.c include/mlp.h include/tensor.h
+build/mlp.o: src/mlp.c include/mlp.h include/tensor.h include/initializer.h
 	@mkdir -p $(dir $@)
 	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
 
@@ -68,7 +68,7 @@ build/transformer_encoder.o: src/transformer_encoder.c include/transformer_encod
 	@mkdir -p $(dir $@)
 	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
 
-build/vision_transformer.o: src/vision_transformer.c include/vision_transformer.h include/tensor.h include/patch_embedding.h include/cls_token.h include/position_embedding.h include/transformer_encoder.h
+build/vision_transformer.o: src/vision_transformer.c include/vision_transformer.h include/tensor.h include/initializer.h include/patch_embedding.h include/cls_token.h include/position_embedding.h include/transformer_encoder.h include/cross_entropy.h
 	@mkdir -p $(dir $@)
 	gcc -std=c11 -Wall -Wextra -Wpedantic -Iinclude -c $< -o $@
 

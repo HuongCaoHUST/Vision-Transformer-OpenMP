@@ -2,6 +2,8 @@
 
 #include <stdlib.h>
 
+#include "initializer.h"
+
 struct PositionEmbedding {
     size_t sequence_length;
     size_t embedding_dimension;
@@ -32,6 +34,8 @@ PositionEmbedding *position_embedding_create(
         return NULL;
     }
 
+    (void)tensor_fill_xavier(
+        layer->value, embedding_dimension, embedding_dimension, 0x1201u);
     layer->sequence_length = sequence_length;
     layer->embedding_dimension = embedding_dimension;
     return layer;
@@ -100,4 +104,40 @@ size_t position_embedding_sequence_length(const PositionEmbedding *layer)
 size_t position_embedding_embedding_dimension(const PositionEmbedding *layer)
 {
     return layer == NULL ? 0 : layer->embedding_dimension;
+}
+
+Tensor *position_embedding_backward(
+    PositionEmbedding *layer,
+    const Tensor *output_gradient,
+    float learning_rate)
+{
+    const size_t *shape;
+    const float *gradient_data;
+    float *position_data;
+    Tensor *input_gradient;
+    size_t i;
+
+    if (layer == NULL || output_gradient == NULL || learning_rate <= 0.0f
+        || tensor_ndim(output_gradient) != 2) {
+        return NULL;
+    }
+
+    shape = tensor_shape(output_gradient);
+    if (shape[0] != layer->sequence_length
+        || shape[1] != layer->embedding_dimension) {
+        return NULL;
+    }
+
+    input_gradient = tensor_clone(output_gradient);
+    if (input_gradient == NULL) {
+        return NULL;
+    }
+
+    gradient_data = tensor_data(output_gradient);
+    position_data = tensor_data_mut(layer->value);
+    for (i = 0; i < tensor_numel(output_gradient); ++i) {
+        position_data[i] -= learning_rate * gradient_data[i];
+    }
+
+    return input_gradient;
 }

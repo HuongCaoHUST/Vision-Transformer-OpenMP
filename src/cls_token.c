@@ -2,6 +2,8 @@
 
 #include <stdlib.h>
 
+#include "initializer.h"
+
 struct ClsToken {
     size_t embedding_dimension;
     Tensor *value;
@@ -28,6 +30,7 @@ ClsToken *cls_token_create(size_t embedding_dimension)
         return NULL;
     }
 
+    (void)tensor_fill_xavier(layer->value, embedding_dimension, embedding_dimension, 0x1101u);
     layer->embedding_dimension = embedding_dimension;
     return layer;
 }
@@ -92,6 +95,56 @@ Tensor *cls_token_forward(const ClsToken *layer, const Tensor *patch_embeddings)
 float *cls_token_data_mut(ClsToken *layer)
 {
     return layer == NULL ? NULL : tensor_data_mut(layer->value);
+}
+
+Tensor *cls_token_backward(
+    ClsToken *layer,
+    const Tensor *output_gradient,
+    float learning_rate)
+{
+    const size_t *shape;
+    const float *gradient_data;
+    float *cls_data;
+    Tensor *patch_gradient;
+    size_t patch_shape[2];
+    size_t i;
+    size_t j;
+
+    if (layer == NULL || output_gradient == NULL || learning_rate <= 0.0f
+        || tensor_ndim(output_gradient) != 2) {
+        return NULL;
+    }
+
+    shape = tensor_shape(output_gradient);
+    if (shape[1] != layer->embedding_dimension || shape[0] < 1) {
+        return NULL;
+    }
+
+    patch_shape[0] = shape[0] - 1;
+    patch_shape[1] = layer->embedding_dimension;
+    if (patch_shape[0] == 0) {
+        return NULL;
+    }
+
+    patch_gradient = tensor_zeros(patch_shape, 2);
+    if (patch_gradient == NULL) {
+        return NULL;
+    }
+
+    gradient_data = tensor_data(output_gradient);
+    cls_data = tensor_data_mut(layer->value);
+    for (j = 0; j < layer->embedding_dimension; ++j) {
+        cls_data[j] -= learning_rate * gradient_data[j];
+    }
+
+    for (i = 0; i < patch_shape[0]; ++i) {
+        for (j = 0; j < layer->embedding_dimension; ++j) {
+            tensor_data_mut(patch_gradient)[i * layer->embedding_dimension + j] =
+                gradient_data[(i + 1) * layer->embedding_dimension + j];
+        }
+    }
+
+    return patch_gradient;
 }
 
 size_t cls_token_embedding_dimension(const ClsToken *layer)
