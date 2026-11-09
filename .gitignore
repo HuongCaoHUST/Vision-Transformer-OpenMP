@@ -2,3 +2,5 @@
 build
 export
 datasets
+*.pt
+runs
