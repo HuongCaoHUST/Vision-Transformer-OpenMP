@@ -42,7 +42,7 @@ TensorStatus vision_transformer_train_classifier_step(
     float learning_rate,
     float *loss);
 
-/* Train the complete ViT on one labeled image with online SGD. */
+/* Train the complete ViT on one labeled image with batch size = 1. */
 TensorStatus vision_transformer_train_step(
     VisionTransformer *model,
     const Tensor *image,

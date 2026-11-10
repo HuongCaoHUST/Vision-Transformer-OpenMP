@@ -1,6 +1,6 @@
 # Vision Transformer OpenMP
 
-Triển khai Vision Transformer (ViT) bằng C/C++, OpenCV và OpenMP. Pipeline đọc CIFAR-10 dạng thư mục, huấn luyện toàn bộ ViT bằng online SGD và đánh giá trên train/test sau mỗi epoch.
+Triển khai Vision Transformer (ViT) bằng C/C++, OpenCV và OpenMP. Pipeline đọc CIFAR-10 dạng thư mục, huấn luyện toàn bộ ViT với batch size = 1 và đánh giá trên train/test sau mỗi epoch.
 
 ## Yêu cầu
 
@@ -90,12 +90,12 @@ image
   -> classifier
   -> cross entropy
   -> backward qua classifier, encoder, positional/CLS và patch embedding
-  -> SGD update
+  -> cập nhật với batch size = 1
 ```
 
 Các tham số được cập nhật gồm patch embedding, CLS token, positional embedding, LayerNorm gamma/beta, Q/K/V/output projection, MLP và classification head. CLS token và positional embedding được khởi tạo bằng Xavier thay vì zero cố định. Mỗi encoder block dùng seed riêng.
 
-Do update xảy ra ngay sau từng sample, vòng train chính hiện tuần tự để bảo đảm thứ tự SGD và tránh race condition trên shared parameters. OpenMP vẫn được bật cho build và dùng để đo thời gian; `OMP_NUM_THREADS` không biến online SGD thành update song song.
+Do update xảy ra ngay sau từng sample (batch size = 1), vòng train chính hiện tuần tự để bảo đảm thứ tự cập nhật và tránh race condition trên shared parameters. OpenMP vẫn được bật cho build và dùng để đo thời gian; `OMP_NUM_THREADS` không biến cách cập nhật batch size = 1 thành update song song.
 
 Loss dùng để in sau epoch được tính lại bằng một evaluation pass, nên không bị nhầm với loss trước update của từng sample.
 

@@ -117,7 +117,7 @@ int main(int argc, char **argv)
     cout << "Evaluation samples: " << test_dataset.size() << '\n';
     cout << "Epochs: " << epochs << '\n';
     cout << "OpenMP max threads: " << omp_get_max_threads() << '\n';
-    cout << "Trainable parameters: full ViT (online SGD)\n";
+    cout << "Trainable parameters: full ViT (batch size = 1)\n";
     cout << "Learning rate: " << learning_rate << '\n';
 
     const double training_start = omp_get_wtime();
