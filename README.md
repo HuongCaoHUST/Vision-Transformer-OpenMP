@@ -9,6 +9,19 @@ Triển khai Vision Transformer (ViT) bằng C/C++, OpenCV và OpenMP. Pipeline 
 - OpenMP
 - OpenCV 4 và `opencv4.pc`
 
+Cài dependency tự động trên Linux:
+
+```bash
+chmod +x install_dependencies.sh
+./install_dependencies.sh
+```
+
+Script tự nhận diện Debian/Ubuntu, Fedora/RHEL hoặc Arch Linux. Sau khi cài xong:
+
+```bash
+make
+```
+
 Trên Ubuntu/Debian:
 
 ```bash
