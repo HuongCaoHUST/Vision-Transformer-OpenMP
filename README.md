@@ -50,7 +50,7 @@ make train-cifar10
 Train nhận hai tham số:
 
 ```text
-./build/train_cifar10 [số_epoch] [số_sample_tối_đa]
+./build/train_cifar10 [số_epoch] [số_sample_tối_đa] [file_weights_output]
 ```
 
 `0` ở tham số sample nghĩa là dùng toàn bộ split tương ứng. Ví dụ:
@@ -61,7 +61,20 @@ Train nhận hai tham số:
 
 # 10 epoch trên toàn bộ train/test
 ./build/train_cifar10 10 0
+
+# train và lưu trọng số theo format của code C/C++ này
+./build/train_cifar10 3 100 build/model.vitw
 ```
+
+Chạy inference trên một ảnh:
+
+```bash
+make inference IMAGE=0010.png WEIGHTS=build/model.vitw
+# hoặc
+./build/inference 0010.png build/model.vitw
+```
+
+Ảnh inference phải có kích thước `32x32x3`. Chương trình in ra tên class và xác suất dự đoán. File weights phải được tạo bởi chương trình train của repository này.
 
 Mặc định:
 

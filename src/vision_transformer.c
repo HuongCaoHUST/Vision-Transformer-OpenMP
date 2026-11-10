@@ -1,16 +1,27 @@
 #include "vision_transformer.h"
 
+#include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #include "cls_token.h"
 #include "cross_entropy.h"
 #include "initializer.h"
+#include "layer_norm.h"
+#include "mlp.h"
+#include "multi_head_attention.h"
 #include "patch_embedding.h"
 #include "position_embedding.h"
 #include "transformer_encoder.h"
 
 struct VisionTransformer {
+    size_t image_height;
+    size_t image_width;
+    size_t patch_size;
+    size_t channels;
     size_t embedding_dimension;
+    size_t number_of_heads;
+    size_t mlp_hidden_dimension;
     size_t number_of_classes;
     size_t number_of_encoder_blocks;
     PatchEmbedding *patch_embedding;
@@ -20,6 +31,238 @@ struct VisionTransformer {
     Tensor *classifier_weight;
     Tensor *classifier_bias;
 };
+
+static const unsigned char weights_magic[8] = {
+    'V', 'I', 'T', 'W', '0', '0', '1', '\0'
+};
+
+static int write_float_array(FILE *file, const float *data, size_t count)
+{
+    return data != NULL && fwrite(data, sizeof(*data), count, file) == count;
+}
+
+static int read_float_array(FILE *file, float *data, size_t count)
+{
+    return data != NULL && fread(data, sizeof(*data), count, file) == count;
+}
+
+static int write_block_weights(FILE *file, TransformerEncoder *block)
+{
+    LayerNorm *attention_norm = transformer_encoder_attention_norm_mut(block);
+    MultiHeadAttention *attention = transformer_encoder_attention_mut(block);
+    LayerNorm *mlp_norm = transformer_encoder_mlp_norm_mut(block);
+    MlpBlock *mlp = transformer_encoder_mlp_mut(block);
+    const size_t dimension = layer_norm_dimension(attention_norm);
+    const size_t hidden_dimension = mlp_hidden_dimension(mlp);
+    const size_t matrix_size = dimension * dimension;
+
+    return write_float_array(
+               file, layer_norm_gamma_mut(attention_norm), dimension)
+        && write_float_array(
+               file, layer_norm_beta_mut(attention_norm), dimension)
+        && write_float_array(
+               file, multi_head_attention_query_weights_mut(attention), matrix_size)
+        && write_float_array(
+               file, multi_head_attention_key_weights_mut(attention), matrix_size)
+        && write_float_array(
+               file, multi_head_attention_value_weights_mut(attention), matrix_size)
+        && write_float_array(
+               file, multi_head_attention_output_weights_mut(attention), matrix_size)
+        && write_float_array(
+               file, multi_head_attention_query_bias_mut(attention), dimension)
+        && write_float_array(
+               file, multi_head_attention_key_bias_mut(attention), dimension)
+        && write_float_array(
+               file, multi_head_attention_value_bias_mut(attention), dimension)
+        && write_float_array(
+               file, multi_head_attention_output_bias_mut(attention), dimension)
+        && write_float_array(
+               file, layer_norm_gamma_mut(mlp_norm), dimension)
+        && write_float_array(
+               file, layer_norm_beta_mut(mlp_norm), dimension)
+        && write_float_array(
+               file, mlp_input_weights_mut(mlp), dimension * hidden_dimension)
+        && write_float_array(
+               file, mlp_input_bias_mut(mlp), hidden_dimension)
+        && write_float_array(
+               file, mlp_output_weights_mut(mlp), hidden_dimension * dimension)
+        && write_float_array(
+               file, mlp_output_bias_mut(mlp), dimension);
+}
+
+static int read_block_weights(FILE *file, TransformerEncoder *block)
+{
+    LayerNorm *attention_norm = transformer_encoder_attention_norm_mut(block);
+    MultiHeadAttention *attention = transformer_encoder_attention_mut(block);
+    LayerNorm *mlp_norm = transformer_encoder_mlp_norm_mut(block);
+    MlpBlock *mlp = transformer_encoder_mlp_mut(block);
+    const size_t dimension = layer_norm_dimension(attention_norm);
+    const size_t hidden_dimension = mlp_hidden_dimension(mlp);
+    const size_t matrix_size = dimension * dimension;
+
+    return read_float_array(
+               file, layer_norm_gamma_mut(attention_norm), dimension)
+        && read_float_array(
+               file, layer_norm_beta_mut(attention_norm), dimension)
+        && read_float_array(
+               file, multi_head_attention_query_weights_mut(attention), matrix_size)
+        && read_float_array(
+               file, multi_head_attention_key_weights_mut(attention), matrix_size)
+        && read_float_array(
+               file, multi_head_attention_value_weights_mut(attention), matrix_size)
+        && read_float_array(
+               file, multi_head_attention_output_weights_mut(attention), matrix_size)
+        && read_float_array(
+               file, multi_head_attention_query_bias_mut(attention), dimension)
+        && read_float_array(
+               file, multi_head_attention_key_bias_mut(attention), dimension)
+        && read_float_array(
+               file, multi_head_attention_value_bias_mut(attention), dimension)
+        && read_float_array(
+               file, multi_head_attention_output_bias_mut(attention), dimension)
+        && read_float_array(
+               file, layer_norm_gamma_mut(mlp_norm), dimension)
+        && read_float_array(
+               file, layer_norm_beta_mut(mlp_norm), dimension)
+        && read_float_array(
+               file, mlp_input_weights_mut(mlp), dimension * hidden_dimension)
+        && read_float_array(
+               file, mlp_input_bias_mut(mlp), hidden_dimension)
+        && read_float_array(
+               file, mlp_output_weights_mut(mlp), hidden_dimension * dimension)
+        && read_float_array(
+               file, mlp_output_bias_mut(mlp), dimension);
+}
+
+static int write_model_weights(FILE *file, VisionTransformer *model)
+{
+    const size_t embedding_dimension = model->embedding_dimension;
+    const size_t number_of_classes = model->number_of_classes;
+    const size_t patch_dimension =
+        patch_embedding_patch_dimension(model->patch_embedding);
+    const size_t sequence_length =
+        patch_embedding_num_patches(model->patch_embedding) + 1;
+    size_t i;
+
+    if (!write_float_array(
+            file,
+            patch_embedding_weights_mut(model->patch_embedding),
+            patch_dimension * embedding_dimension)
+        || !write_float_array(
+            file,
+            patch_embedding_bias_mut(model->patch_embedding),
+            embedding_dimension)
+        || !write_float_array(
+            file, cls_token_data_mut(model->cls_token), embedding_dimension)
+        || !write_float_array(
+            file,
+            position_embedding_data_mut(model->position_embedding),
+            sequence_length * embedding_dimension)) {
+        return 0;
+    }
+
+    for (i = 0; i < model->number_of_encoder_blocks; ++i) {
+        if (!write_block_weights(file, model->encoder_blocks[i])) {
+            return 0;
+        }
+    }
+
+    return write_float_array(
+               file,
+               tensor_data(model->classifier_weight),
+               embedding_dimension * number_of_classes)
+        && write_float_array(
+               file, tensor_data(model->classifier_bias), number_of_classes);
+}
+
+static int read_model_weights(FILE *file, VisionTransformer *model)
+{
+    const size_t embedding_dimension = model->embedding_dimension;
+    const size_t number_of_classes = model->number_of_classes;
+    const size_t patch_dimension =
+        patch_embedding_patch_dimension(model->patch_embedding);
+    const size_t sequence_length =
+        patch_embedding_num_patches(model->patch_embedding) + 1;
+    size_t i;
+
+    if (!read_float_array(
+            file,
+            patch_embedding_weights_mut(model->patch_embedding),
+            patch_dimension * embedding_dimension)
+        || !read_float_array(
+            file,
+            patch_embedding_bias_mut(model->patch_embedding),
+            embedding_dimension)
+        || !read_float_array(
+            file, cls_token_data_mut(model->cls_token), embedding_dimension)
+        || !read_float_array(
+            file,
+            position_embedding_data_mut(model->position_embedding),
+            sequence_length * embedding_dimension)) {
+        return 0;
+    }
+
+    for (i = 0; i < model->number_of_encoder_blocks; ++i) {
+        if (!read_block_weights(file, model->encoder_blocks[i])) {
+            return 0;
+        }
+    }
+
+    return read_float_array(
+               file,
+               tensor_data_mut(model->classifier_weight),
+               embedding_dimension * number_of_classes)
+        && read_float_array(
+               file, tensor_data_mut(model->classifier_bias), number_of_classes);
+}
+
+static int write_weights_header(FILE *file, const VisionTransformer *model)
+{
+    const uint64_t config[] = {
+        (uint64_t)model->image_height,
+        (uint64_t)model->image_width,
+        (uint64_t)model->patch_size,
+        (uint64_t)model->channels,
+        (uint64_t)model->embedding_dimension,
+        (uint64_t)model->number_of_heads,
+        (uint64_t)model->mlp_hidden_dimension,
+        (uint64_t)model->number_of_encoder_blocks,
+        (uint64_t)model->number_of_classes
+    };
+
+    return fwrite(weights_magic, sizeof(weights_magic), 1, file) == 1
+        && fwrite(config, sizeof(config[0]), sizeof(config) / sizeof(config[0]), file)
+            == sizeof(config) / sizeof(config[0]);
+}
+
+static int read_weights_header(FILE *file, size_t *config)
+{
+    unsigned char magic[sizeof(weights_magic)];
+    uint64_t raw_config[9];
+    size_t i;
+
+    if (fread(magic, sizeof(magic), 1, file) != 1
+        || fread(raw_config, sizeof(raw_config[0]),
+                 sizeof(raw_config) / sizeof(raw_config[0]), file)
+            != sizeof(raw_config) / sizeof(raw_config[0])) {
+        return 0;
+    }
+
+    for (i = 0; i < sizeof(weights_magic); ++i) {
+        if (magic[i] != weights_magic[i]) {
+            return 0;
+        }
+    }
+
+    for (i = 0; i < sizeof(raw_config) / sizeof(raw_config[0]); ++i) {
+        if (raw_config[i] > (uint64_t)SIZE_MAX) {
+            return 0;
+        }
+        config[i] = (size_t)raw_config[i];
+    }
+
+    return 1;
+}
 
 static Tensor *create_classifier_weight(size_t input_dimension, size_t output_dimension)
 {
@@ -66,6 +309,12 @@ VisionTransformer *vision_transformer_create(
     }
 
     model->embedding_dimension = embedding_dimension;
+    model->image_height = image_height;
+    model->image_width = image_width;
+    model->patch_size = patch_size;
+    model->channels = channels;
+    model->number_of_heads = number_of_heads;
+    model->mlp_hidden_dimension = mlp_hidden_dimension;
     model->number_of_classes = number_of_classes;
     model->number_of_encoder_blocks = number_of_encoder_blocks;
     model->patch_embedding = patch_embedding_create(
@@ -138,6 +387,71 @@ void vision_transformer_free(VisionTransformer *model)
     tensor_free(model->classifier_weight);
     tensor_free(model->classifier_bias);
     free(model);
+}
+
+TensorStatus vision_transformer_save_weights(
+    const VisionTransformer *model,
+    const char *path)
+{
+    FILE *file;
+    int success;
+
+    if (model == NULL || path == NULL) {
+        return TENSOR_ERROR_INVALID_ARGUMENT;
+    }
+
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        return TENSOR_ERROR_IO;
+    }
+
+    /* The save helper only reads the model; its mutating accessors are used
+       internally because the layer APIs expose their parameter buffers that way. */
+    success = write_weights_header(file, model)
+        && write_model_weights(file, (VisionTransformer *)model);
+    if (fclose(file) != 0) {
+        success = 0;
+    }
+
+    return success ? TENSOR_OK : TENSOR_ERROR_IO;
+}
+
+VisionTransformer *vision_transformer_load_weights(const char *path)
+{
+    FILE *file;
+    size_t config[9];
+    VisionTransformer *model;
+    int extra_byte;
+
+    if (path == NULL) {
+        return NULL;
+    }
+
+    file = fopen(path, "rb");
+    if (file == NULL || !read_weights_header(file, config)) {
+        if (file != NULL) {
+            fclose(file);
+        }
+        return NULL;
+    }
+
+    model = vision_transformer_create(
+        config[0], config[1], config[2], config[3], config[4],
+        config[5], config[6], config[7], config[8]);
+    if (model == NULL || !read_model_weights(file, model)) {
+        fclose(file);
+        vision_transformer_free(model);
+        return NULL;
+    }
+
+    extra_byte = fgetc(file);
+    fclose(file);
+    if (extra_byte != EOF) {
+        vision_transformer_free(model);
+        return NULL;
+    }
+
+    return model;
 }
 
 Tensor *vision_transformer_forward_features(

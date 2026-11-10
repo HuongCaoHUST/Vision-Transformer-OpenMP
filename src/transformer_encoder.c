@@ -222,3 +222,23 @@ size_t transformer_encoder_embedding_dimension(const TransformerEncoder *block)
 {
     return block == NULL ? 0 : block->embedding_dimension;
 }
+
+LayerNorm *transformer_encoder_attention_norm_mut(TransformerEncoder *block)
+{
+    return block == NULL ? NULL : block->attention_norm;
+}
+
+MultiHeadAttention *transformer_encoder_attention_mut(TransformerEncoder *block)
+{
+    return block == NULL ? NULL : block->attention;
+}
+
+LayerNorm *transformer_encoder_mlp_norm_mut(TransformerEncoder *block)
+{
+    return block == NULL ? NULL : block->mlp_norm;
+}
+
+MlpBlock *transformer_encoder_mlp_mut(TransformerEncoder *block)
+{
+    return block == NULL ? NULL : block->mlp;
+}

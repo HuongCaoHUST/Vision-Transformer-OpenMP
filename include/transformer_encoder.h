@@ -11,6 +11,9 @@ extern "C" {
 #endif
 
 typedef struct TransformerEncoder TransformerEncoder;
+typedef struct LayerNorm LayerNorm;
+typedef struct MultiHeadAttention MultiHeadAttention;
+typedef struct MlpBlock MlpBlock;
 
 TransformerEncoder *transformer_encoder_create(
     size_t embedding_dimension,
@@ -36,6 +39,12 @@ Tensor *transformer_encoder_backward(
     float learning_rate);
 
 size_t transformer_encoder_embedding_dimension(const TransformerEncoder *block);
+
+/* Access the sublayers for checkpoint save/load. */
+LayerNorm *transformer_encoder_attention_norm_mut(TransformerEncoder *block);
+MultiHeadAttention *transformer_encoder_attention_mut(TransformerEncoder *block);
+LayerNorm *transformer_encoder_mlp_norm_mut(TransformerEncoder *block);
+MlpBlock *transformer_encoder_mlp_mut(TransformerEncoder *block);
 
 #ifdef __cplusplus
 }

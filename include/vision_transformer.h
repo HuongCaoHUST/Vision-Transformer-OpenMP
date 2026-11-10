@@ -24,6 +24,12 @@ VisionTransformer *vision_transformer_create(
 
 void vision_transformer_free(VisionTransformer *model);
 
+/* Save/load a checkpoint produced by this implementation. */
+TensorStatus vision_transformer_save_weights(
+    const VisionTransformer *model,
+    const char *path);
+VisionTransformer *vision_transformer_load_weights(const char *path);
+
 /* Return logits with shape [1, number_of_classes]. */
 Tensor *vision_transformer_forward(
     const VisionTransformer *model,

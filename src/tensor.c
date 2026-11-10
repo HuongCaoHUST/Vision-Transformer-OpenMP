@@ -323,6 +323,8 @@ const char *tensor_status_string(TensorStatus status)
         return "Tensor shape mismatch";
     case TENSOR_ERROR_OUT_OF_BOUNDS:
         return "Tensor index out of bounds";
+    case TENSOR_ERROR_IO:
+        return "File input/output error";
     default:
         return "Unknown tensor error";
     }

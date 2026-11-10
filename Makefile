@@ -8,12 +8,13 @@ DATASET_OBJECTS := build/cifar10_dataset.o
 DATASET_TEST := build/test_cifar10
 TRAIN_TEST := build/train_cifar10
 PATCH_TEST := build/test_patch_embedding
+INFERENCE_TEST := build/inference
 
 CPPFLAGS  += $(shell $(PKG_CONFIG) --cflags opencv4 2>/dev/null)
 CXXFLAGS  += -std=c++17 -O2 -Wall -Wextra -fopenmp
 LDLIBS    += $(shell $(PKG_CONFIG) --libs opencv4 2>/dev/null)
 
-.PHONY: all run test-patches test-cifar10 train-cifar10 clean help
+.PHONY: all run test-patches test-cifar10 train-cifar10 inference clean help
 
 all: $(TARGET)
 
@@ -96,6 +97,13 @@ $(TRAIN_TEST): train_cifar10.cpp $(DATASET_OBJECTS) $(TENSOR_OBJECTS)
 
 train-cifar10: $(TRAIN_TEST)
 	./$(TRAIN_TEST)
+
+$(INFERENCE_TEST): inference.cpp $(TENSOR_OBJECTS)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) -std=c++17 -O2 -Wall -Wextra -Iinclude $^ $(LDFLAGS) $(LDLIBS) -o $@
+
+inference: $(INFERENCE_TEST)
+	./$(INFERENCE_TEST) $(IMAGE) $(WEIGHTS)
 
 clean:
 	rm -rf build

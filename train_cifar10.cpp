@@ -92,6 +92,7 @@ int main(int argc, char **argv)
 {
     const size_t epochs = argc > 1 ? strtoul(argv[1], nullptr, 10) : 1;
     const size_t max_samples = argc > 2 ? strtoul(argv[2], nullptr, 10) : 100;
+    const char *weights_path = argc > 3 ? argv[3] : nullptr;
     const float learning_rate = 0.001f;
     Cifar10Dataset train_dataset("datasets/cifar10", "train", max_samples);
     Cifar10Dataset test_dataset("datasets/cifar10", "test", max_samples);
@@ -119,6 +120,9 @@ int main(int argc, char **argv)
     cout << "OpenMP max threads: " << omp_get_max_threads() << '\n';
     cout << "Trainable parameters: full ViT (batch size = 1)\n";
     cout << "Learning rate: " << learning_rate << '\n';
+    if (weights_path != nullptr) {
+        cout << "Weights output: " << weights_path << '\n';
+    }
 
     const double training_start = omp_get_wtime();
     for (size_t epoch = 0; epoch < epochs; ++epoch) {
@@ -174,6 +178,18 @@ int main(int argc, char **argv)
     }
 
     const double training_seconds = omp_get_wtime() - training_start;
+    if (weights_path != nullptr) {
+        const TensorStatus save_status =
+            vision_transformer_save_weights(model, weights_path);
+        if (save_status != TENSOR_OK) {
+            cerr << "Unable to save weights to " << weights_path << ": "
+                 << tensor_status_string(save_status) << '\n';
+            vision_transformer_free(model);
+            return EXIT_FAILURE;
+        }
+        cout << "Saved weights: " << weights_path << '\n';
+    }
+
     cout << "Total training time: " << fixed << setprecision(6)
          << training_seconds << " s\n";
     vision_transformer_free(model);

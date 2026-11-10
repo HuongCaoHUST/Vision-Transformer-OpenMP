@@ -17,7 +17,8 @@ typedef enum {
     TENSOR_ERROR_INVALID_ARGUMENT,
     TENSOR_ERROR_ALLOCATION,
     TENSOR_ERROR_SHAPE_MISMATCH,
-    TENSOR_ERROR_OUT_OF_BOUNDS
+    TENSOR_ERROR_OUT_OF_BOUNDS,
+    TENSOR_ERROR_IO
 } TensorStatus;
 
 Tensor *tensor_create(const size_t *shape, size_t ndim);
